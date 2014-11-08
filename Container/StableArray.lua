@@ -33,11 +33,15 @@ local type = type
 
 -- Modules --
 local class = require("tektite_core.class")
+local embedded_free_list = require("tektite_core.array.embedded_free_list")
 local var_preds = require("tektite_core.var.predicates")
 
 -- Imports --
+local GetInsertIndex = embedded_free_list.GetInsertIndex
+local InUse = embedded_free_list.InUse
 local IsCallable = var_preds.IsCallable
 local IsNaN = var_preds.IsNaN
+local RemoveAt = embedded_free_list.RemoveAt
 
 -- Unique member keys --
 local _array = {}
@@ -111,33 +115,16 @@ return class.Define(function(StableArray)
 
 	-- Helper to remove an element from the array
 	local function Remove (SA, i)
-		local arr, free = SA[_array], SA[_free]
-		local n = #arr
+		local arr = SA[_array]
 
-		-- Remove numbers from the hash part, then correct the index for removal of the
-		-- nonce that remains in the array part.
+		-- If a number is in the hash part, remove it, then correct the index to account for the
+		-- nonce contained in the array part.
 		if i < 0 then
 			i, arr[i] = -i
 		end
 
-		-- Final slot: trim the array.
-		if i == n then
-			n, arr[i] = n - 1
-
-			-- It may be possible to trim more: if the new final slot also happens to be
-			-- the free stack top, it is known to not be in use. Trim the array until this
-			-- is no longer the case (which may mean the free stack is empty).
-			while n > 0 and n == free do
-				free, n, arr[n] = arr[n], n - 1
-			end
-
-		-- Otherwise, the removed slot becomes the free stack top.
-		elseif i >= 1 and i < n then
-			arr[i], free = free, i
-		end
-
-		-- Adjust the free stack top.
-		SA[_free] = free
+		-- Do removal from the array part.
+		SA[_free] = RemoveAt(arr, i, SA[_free])
 	end
 
 	--- Removes _elem_ from the array, cf. @{StableArray:RemoveAt}.
@@ -164,16 +151,6 @@ return class.Define(function(StableArray)
 		end
 
 		return elem
-	end
-
-	-- Helper to report slot usage
-	local function InUse (arr, i)
-		-- Disregard non-array indices and invalid slots. To streamline the test, treat these
-		-- cases as though a number was found in the array part.
-		local elem = i > 0 and arr[i] or 0
-
-		-- The stack is comprised of numbers; conversely, non-numbers are in use.
-		return type(elem) ~= "number"
 	end
 
 	--- Getter.
@@ -238,13 +215,9 @@ return class.Define(function(StableArray)
 	-- @param elem
 	-- @treturn uint Slot index at which _elem_ was inserted.
 	function StableArray:Insert (elem)
-		local arr, free, index = self[_array], self[_free]
+		local arr, index = self[_array]
 
-		if free > 0 then
-			index, self[_free] = free, arr[free]
-		else
-			index = #arr + 1
-		end
+		index, self[_free] = GetInsertIndex(arr, self[_free])
 
 		Add(arr, index, elem)
 
