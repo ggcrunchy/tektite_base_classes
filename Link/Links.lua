@@ -46,8 +46,8 @@ local Tags = require("tektite_base_classes.Link.Tags")
 local _alive = {}
 local _links = {}
 local _objects = {}
+local _on_assign = {}
 local _on_remove = {}
-local _on_set = {}
 local _proxies = {}
 local _tagged_lists = {}
 local _tags = {}
@@ -510,14 +510,14 @@ LinksClass = class.Define(function(Links)
 
 	--- Setter.
 	-- @callable func X
-	function Links:SetRemoveFunc (func)
-		self[_on_remove] = func
+	function Links:SetAssignFunc (func)
+		self[_on_assign] = func
 	end
 
 	--- Setter.
 	-- @callable func X
 	function Links:SetRemoveFunc (func)
-		self[_on_set] = func
+		self[_on_remove] = func
 	end
 
 	--- DOCME
@@ -538,10 +538,10 @@ LinksClass = class.Define(function(Links)
 		SetInTaggedList(self, name, proxy.id, proxy)
 
 		--
-		local on_set = self[_on_set]
+		local on_assign = self[_on_assign]
 
-		if on_set then
-			on_set(object)
+		if on_assign then
+			on_assign(object)
 		end
 		--[[
 				-- There may be many objects, so deal with just a slice at a time.
@@ -561,7 +561,7 @@ LinksClass = class.Define(function(Links)
 
 		if list then
 			for _, proxy in pairs(list) do
-				local object = Object(proxy)
+				local object = Object(L, proxy)
 
 				if object then
 					yield(object)

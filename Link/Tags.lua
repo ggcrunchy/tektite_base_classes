@@ -451,7 +451,7 @@ return class.Define(function(Tags)
 			end
 
 			--
-			for _, v in Pairs(Tags[name].sub_links) do
+			for _, v in Pairs(T[_tags][name].sub_links) do
 				str_list[count + 1], count = v:GetName(), count + 1
 			end
 
