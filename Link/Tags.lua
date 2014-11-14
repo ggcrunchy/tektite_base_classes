@@ -1,4 +1,7 @@
---- Object tagging components.
+--- This class provides a way to label a set of types, suggest any general behaviors they
+-- implement, and describe what connections are allowed among them, horizontally as well
+-- as hierarchically.
+-- @module Tags
 
 --
 -- Permission is hereby granted, free of charge, to any person obtaining
@@ -46,7 +49,7 @@ local _implemented_by = {}
 local _implies = {}
 local _tags = {}
 
---
+-- Iterator over a list of strings (tags or sublinks)
 local IterStrList = iterator_utils.InstancedAutocacher(function()
 	local str_list = {}
 
@@ -62,7 +65,7 @@ local IterStrList = iterator_utils.InstancedAutocacher(function()
 
 	-- Setup --
 	function(T, enum, name_, as_set)
-		--
+		-- Build up the list of strings, accommodating the form of the source.
 		local count = 0
 
 		if as_set then
@@ -213,14 +216,14 @@ return class.Define(function(Tags)
 		end
 
 		--- DOCME
-		function Tags:CanLink (name1, name2, object1, object2, sub1, sub2)
+		function Tags:CanLink (name1, name2, object1, object2, sub1, sub2, arg)
 			local so1, is_cont, passed, why = FindSublink(self, name1, sub1), true
 
 			if so1 then
 				local so2 = FindSublink(self, name2, sub2)
 
 				if so2 then
-					passed, why, is_cont = so1[_can_link](object1, object2, so1, so2) --- ????
+					passed, why, is_cont = so1[_can_link](object1, object2, so1, so2, arg)
 				else
 					why = "Missing sublink #2: `" .. (sub2 or "?") .. "`"
 				end
@@ -285,10 +288,10 @@ return class.Define(function(Tags)
 		end
 	end
 
-	-- --
+	-- Nothing to iterate
 	local function NoOp () end
 
-	--
+	-- Iterate pairs()-style, if the table exists
 	local function Pairs (t)
 		if t then
 			return pairs(t)
@@ -300,17 +303,21 @@ return class.Define(function(Tags)
 	do
 		-- Sublink class definition --
 		local SublinkClass = class.Define(function(Sublink)
-			--- DOCME
+			--- Getter.
+			-- @treturn string Sublink name.
 			function Sublink:GetName ()
 				return self[_name]
 			end
 
-			--- DOCME
+			--- Predicate.
+			-- @param what
+			-- @treturn boolean X
 			function Sublink:Implements (what)
 				return adaptive.InSet(self[_interfaces], what)
 			end
 
-			--- DOCME
+			--- Class constructor.
+			-- @string name Sublink name.
 			function Sublink:__cons (name)
 				self[_name] = name
 			end
@@ -334,11 +341,14 @@ return class.Define(function(Tags)
 		end
 
 		--- DOCME
+		-- @param name
+		-- @param what
 		function Tags:ImpliesInterface (name, what)
 			adaptive.AddToSet(self[_implies], name, what)
 		end
 
 		--- DOCME
+		-- @treturn iterator I
 		function Tags:Implementors (what)
 			return TagAndChildren(self, self[_implemented_by][what], true)
 		end
@@ -358,7 +368,7 @@ return class.Define(function(Tags)
 
 		--- DOCME
 		-- @string name
-		-- @ptable options
+		-- @ptable[opt] options
 		function Tags:New (name, options)
 			local tags = self[_tags]
 

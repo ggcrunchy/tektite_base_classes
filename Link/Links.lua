@@ -1,4 +1,13 @@
---- Object linking components.
+--- This class provides functionality for linking tagged objects, cf. @{Tags}, and for
+-- describing the relations that exist among them.
+--
+-- The **Object** type is user-defined; the implementation makes only a basic assumption
+-- about its lifetime, q.v. @{Links:__cons}.
+--
+-- This is not a singleton class; object relationships, as described by its methods, are
+-- restricted to those related to a particular instance. A given object may belong to
+-- two or more instances, say, yet its links will be unique in each.
+-- @module Links
 
 --
 -- Permission is hereby granted, free of charge, to any person obtaining
@@ -39,7 +48,7 @@ local coro = require("iterator_ops.coroutine")
 local strings = require("tektite_core.var.strings")
 
 -- Classes --
-local SparseArray = require("tektite_base_classes.Container.StableArray")
+local StableArray = require("tektite_base_classes.Container.StableArray")
 local Tags = require("tektite_base_classes.Link.Tags")
 
 -- Unique member keys (Links) --
@@ -49,10 +58,10 @@ local _on_assign = {}
 local _on_remove = {}
 local _pair_links = {}
 local _proxies = {}
+local _tag_db = {}
 local _tagged_lists = {}
-local _tags = {}
 
--- Unique member keys (Link) --
+-- Unique member keys (SingleLink) --
 local _on_break = {}
 local _parent = {}
 local _proxy1 = {}
@@ -60,10 +69,10 @@ local _proxy2 = {}
 local _sub1 = {}
 local _sub2 = {}
 
--- --
+-- Nothing to iterate
 local function NoOp () end
 
---
+-- Iterate over the non-string keys in the table
 local function NumberPairs (t, k)
 	repeat
 		k = next(t, k)
@@ -86,7 +95,7 @@ local function GetKey (p1, p2)
 	return p1[p2.id]
 end
 
---
+-- Iterates over all the links between two proxies
 local function LinksIter (L, p1, p2)
 	local key = GetKey(p1, p2)
 	local t = key and L[_pair_links][key]
@@ -98,7 +107,7 @@ local function LinksIter (L, p1, p2)
 	end
 end
 
---
+-- Add or remove a proxy (if available) from its tag's list
 local function SetInTaggedList (L, name, id, proxy)
 	local tagged_lists = L[_tagged_lists]
 	local list = tagged_lists[name]
@@ -110,11 +119,12 @@ local function SetInTaggedList (L, name, id, proxy)
 	end
 end
 
---
+-- Helper to remove an object and all its associated data
 local function RemoveObject (L, id, object)
 	local pair_links, proxies = L[_pair_links], L[_proxies]
 
-	--
+	-- Invalidate the proxy and break any links associated with the object. The order is
+	-- important: with the proxy gone, recursive removals are avoided in the break logic.
 	local proxy = proxies[object]
 
 	proxies[object], proxy.id = nil
@@ -125,21 +135,22 @@ local function RemoveObject (L, id, object)
 		end
 	end
 
-	--
+	-- De-tag the object.
 	SetInTaggedList(L, proxy.name, id, nil)
 
-	--
+	-- Perform any user-defined remove logic.
 	local on_remove = L[_on_remove]
 
 	if on_remove then
 		on_remove(object)
 	end
 
+	-- Evict the object.
 	L[_objects]:RemoveAt(id)
 end
 
 -- Helper to get an object (if valid) from a proxy
--- If the object has gone dead, it is removed, and considered to be nil
+-- If the object is no longer alive, it is removed, and considered to be nil
 local function Object (L, proxy)
 	local id = proxy and proxy.id
 
@@ -156,7 +167,7 @@ local function Object (L, proxy)
 	return nil
 end
 
--- --
+-- Forward reference to Links class --
 local LinksClass
 
 -- SingleLink class definition --
@@ -170,10 +181,10 @@ local SingleLinkClass = class.Define(function(Link)
 		end
 	end
 
-	--- Breaks this line, after which it will be invalid.
+	--- Breaks this link.
 	--
-	-- If the link is already invalid, this is a no-op.
-	-- @see Link:IsValid
+	-- If it is already broken, this is a no-op.
+	-- @see Link:IsIntact
 	function Link:Break ()
 		local parent, p1, p2 = self[_parent], self[_proxy1], self[_proxy2]
 
@@ -181,13 +192,13 @@ local SingleLinkClass = class.Define(function(Link)
 		-- recursion (namely, in case of dead objects).
 		self[_proxy1], self[_proxy2] = nil
 
-		-- If the objects were both valid, the link is still intact. In this case, remove it from
-		-- the pair's list; if this empties the list, remove that as well, from both the master
-		-- list and each proxy.
+		-- If both objects were valid, the link is still intact. If so, remove it from the pair's
+		-- list. If doing this empties the list itself, remove it also, as well as its associated
+		-- key from each proxy.
 		local obj1 = Object(parent, p1)
 		local obj2 = Object(parent, p2)
 
-		if obj1 and obj2 then
+		if obj1 ~= nil and obj2 ~= nil then
 			local key, pair_links = GetKey(p1, p2), parent[_pair_links]
 			local links = pair_links[key]
 
@@ -198,7 +209,7 @@ local SingleLinkClass = class.Define(function(Link)
 			end
 		end
 
-		-- If this link went from intact to broken, call any handler.
+		-- If the link went from intact to broken, call any handler.
 		local on_break = p1 and self[_on_break]
 
 		if on_break then
@@ -210,11 +221,11 @@ local SingleLinkClass = class.Define(function(Link)
 	-- @treturn boolean The link is still intact?
 	--
 	-- When **false**, this is the only return value.
-	-- @treturn ?pobject Linked object #1...
-	-- @treturn ?pobject ...and #2.
+	-- @treturn ?Object Linked object #1...
+	-- @treturn ?Object ...and #2.
 	-- @treturn ?string Sublink of object #1...
 	-- @treturn ?string ...and object #2.
-	-- @see Link:IsValid
+	-- @see Link:IsIntact
 	function Link:GetObjects ()
 		local parent = self[_parent]
 		local obj1, obj2 = Object(parent, self[_proxy1]), Object(parent, self[_proxy2])
@@ -227,10 +238,11 @@ local SingleLinkClass = class.Define(function(Link)
 	end
 
 	--- Getter.
-	-- @pobject object Object, which may be paired in the link.
-	-- @treturn ?pobject If the link is valid and _object_ was one of its linked objects, the
+	-- @tparam Object object Object, which may be paired in the link.
+	-- @treturn ?Object If the link is intact and _object_ was one of its linked objects, the
 	-- other object; otherwise, **nil**.
 	-- @treturn ?string If an object was returned, its sublink; if absent, **nil**.
+	-- @see Links:LinkObjects
 	function Link:GetOtherObject (object)
 		local _, obj1, obj2, sub1, sub2 = self:GetObjects()
 
@@ -243,31 +255,36 @@ local SingleLinkClass = class.Define(function(Link)
 		return nil
 	end
 
-	--- Checks link validity. Links are invalid after @{Link:Break}, or if one or both of
-	-- the proxied objects has been removed.
+	--- Checks whether a link is not yet broken. Links are broken after @{Link:Break}, or if one
+	-- or both of the linked objects is no longer alive.
 	-- @treturn boolean The link is still intact?
-	function Link:IsValid ()
+	-- @see Links:LinkObjects
+	function Link:IsIntact ()
 		local parent = self[_parent]
 
 		return (Object(parent, self[_proxy1]) and Object(parent, self[_proxy2])) ~= nil
 	end
 
-	--- Sets logic to call when a link becomes invalid, cf. @{Link:IsValid}.
+	--- Sets logic to call when a link breaks, cf. @{Link:IsIntact}.
 	--
 	-- Called as
 	--    func(link, object1, object2, sub1, sub2)
 	-- where _object1_ and _object2_ were the linked objects and _sub1_ and _sub2_ were their
-	-- respective sublinks. In the case that _object*_ has been removed, it will be **nil**.
+	-- respective sublinks. In the case that _object*_ is no longer alive, it will be **nil**.
 	--
-	-- **N.B.** This may be triggered lazily, i.e. outside of @{Link:Break}, either via one of
-	-- the other link methods or @{Links:CleanUp}.
+	-- **N.B.** This may be triggered lazily, i.e. outside of @{Link:Break}, either via some
+	-- other method of **Link** or @{Links:CleanUp}.
 	-- @callable func Function to assign, or **nil** to disable the logic.
 	function Link:SetBreakFunc (func)
 		self[_on_break] = func
 	end
 
 	--- Class constructor.
-	-- DOCMEMORE
+	-- @tparam Links parent
+	-- @tparam Proxy proxy1 Proxy to **Object** #1...
+	-- @tparam Proxy proxy2 ...and #2.
+	-- @string sub1 Sublink corresponding to _proxy1_...
+	-- @string sub2 ...and _proxy2_.
 	function Link:__cons (parent, proxy1, proxy2, sub1, sub2)
 		assert(class.Type(parent) == LinksClass, "Non-links parent")
 
@@ -300,12 +317,15 @@ LinksClass = class.Define(function(Links)
 	--
 	-- Cleanup of an object consists in breaking any links it has made, invalidating its proxy,
 	-- and removing it from its tag's list.
+	--
+	-- Such cleanup is performed when dead objects are found during other operations, but this
+	-- explicit method should generally be more deterministic if called regularly.
 	-- @uint from ID of first (possible) object.
-	-- @uint count Number of objects to check.
-	-- @treturn uint First ID after visited objects.
+	-- @uint[opt] count Number of objects to check. If absent, a reasonable default is used.
+	-- @treturn uint First ID after visited objects (to be used as _from_ on the next call).
 	function Links:CleanUp (from, count)
 		local nobjs = #self[_objects]
-		local to = from + min(count, nobjs) - 1
+		local to = from + min(count or 15, nobjs) - 1
 
 		AuxCleanUp(self, from, min(to, nobjs))
 
@@ -318,25 +338,25 @@ LinksClass = class.Define(function(Links)
 		return to + 1
 	end
 
-	--
+	-- Does the first sublink match the link?
 	local function Match1 (link, proxy, sub)
 		return link[_proxy1] == proxy and link[_sub1] == sub
 	end
 
-	--
+	-- Does the second sublink match the link?
 	local function Match2 (link, proxy, sub)
 		return link[_proxy2] == proxy and link[_sub2] == sub
 	end
 
 	-- Helper to get a proxy (if valid) from an object
 	local function Proxy (L, object)
-		return object and L[_alive](object) and L[_proxies][object]
+		return object ~= nil and L[_alive](object) and L[_proxies][object]
 	end
 
 	--- Getter.
-	-- @pobject object
-	-- @string sub
-	-- @treturn uint C
+	-- @tparam Object object
+	-- @string sub Sublink 
+	-- @treturn uint Number of links to _object_ through _sub_.
 	function Links:CountLinks (object, sub)
 		local proxy, pair_links, count = Proxy(self, object), self[_pair_links], 0
 
@@ -351,7 +371,7 @@ LinksClass = class.Define(function(Links)
 		return count
 	end
 
-	--
+	-- Are the proxied objects already linked through the given sublinks?
 	local function AlreadyLinked (L, p1, p2, sub1, sub2)
 		for _, link in LinksIter(L, p1, p2) do
 			if Match1(link, p1, sub1) and Match2(link, p2, sub2) then
@@ -360,7 +380,7 @@ LinksClass = class.Define(function(Links)
 		end
 	end
 
-	--
+	-- Sorts a prospective link pair, to forgo some confusion about their lookup key
 	local function SortProxies (p1, p2, sub1, sub2, obj1, obj2)
 		if p2.id < p1.id then
 			return p2, p1, sub2, sub1, obj2, obj1
@@ -369,12 +389,12 @@ LinksClass = class.Define(function(Links)
 		end
 	end
 
-	--- DOCME
-	-- @pobject object1
-	-- @pobject object2
-	-- @string sub1
-	-- @string sub2
-	-- @treturn boolean X If true, this is the only return value.
+	--- Predicate.
+	-- @tparam Object object1
+	-- @tparam Object object2
+	-- @string sub1 Sublink corresponding to _object1_...
+	-- @string sub2 ...and _object2_.
+	-- @treturn boolean The link can be made? If **true**, this is the only return value.
 	-- @treturn ?string Reason link cannot be formed.
 	-- @treturn ?boolean This is a contradiction or "strong" failure, i.e. the predicate will
 	-- **always** fail, given the inputs?
@@ -390,14 +410,14 @@ LinksClass = class.Define(function(Links)
 
 			-- ...and not already linked?
 			else
-				local tags = self[_tags]
+				local tag_db = self[_tag_db]
 
 				-- ...pass all object1-object2 predicates?
-				local passed, why, is_cont = tags:CanLink(p1.name, p2.name, object1, object2, sub1, sub2)
+				local passed, why, is_cont = tag_db:CanLink(p1.name, p2.name, object1, object2, sub1, sub2, self)
 
 				if passed then
 					-- ...and object2-object1 ones too?
-					passed, why, is_cont = tags:CanLink(p2.name, p1.name, object2, object1, sub2, sub1)
+					passed, why, is_cont = tag_db:CanLink(p2.name, p1.name, object2, object1, sub2, sub1, self)
 
 					if passed then
 						return true
@@ -412,19 +432,23 @@ LinksClass = class.Define(function(Links)
 	end
 
 	--- Getter.
-	-- @pobject object
-	-- @bool is_proxy
-	-- @treturn string N
-	function Links:GetTag (object, is_proxy)
-		if not is_proxy then
-			object = Proxy(self, object)
-		end
+	-- @tparam Object object
+	-- @treturn ?string If _object_ is valid and has been assigned a tag by @{Links:SetTag},
+	-- that tag; otherwise, **nil**.
+	function Links:GetTag (object)
+		local proxy = Proxy(self, object)
 
-		return object and object.name
+		return proxy and proxy.name
+	end
+
+	--- Getter.
+	-- @treturn Tags Tag database, cf. @{Links:__cons}.
+	function Links:GetTagDatabase ()
+		return self[_tag_db]
 	end
 
 	--- Predicate.
-	-- @pobject object
+	-- @tparam Object object
 	-- @string sub
 	-- @treturn boolean X
 	function Links:HasLinks (object, sub)
@@ -442,13 +466,13 @@ LinksClass = class.Define(function(Links)
 	end
 
 	--- DOCME
-	-- @pobject object1
-	-- @pobject object2
+	-- @tparam Object object1
+	-- @tparam Object object2
 	-- @string sub1
 	-- @string sub2
-	-- @treturn Link L
-	-- @treturn string S
-	-- @treturn boolean B
+	-- @treturn ?Link L
+	-- @treturn ?string S
+	-- @treturn ?boolean B
 	function Links:LinkObjects (object1, object2, sub1, sub2)
 		local can_link, why, is_cont = self:CanLink(object1, object2, sub1, sub2) 
 
@@ -458,8 +482,8 @@ LinksClass = class.Define(function(Links)
 			-- To limit a few checks later on, impose an order on the proxies.
 			p1, p2, sub1, sub2 = SortProxies(proxies[object1], proxies[object2], sub1, sub2)
 
-			-- Lookup the links already associated with this pairing. If this is the first,
-			-- generate the key and list and hook everything up.
+			-- Consult the links already associated with this pairing. If none yet exist, generate
+			-- a key and list and hook everything up.
 			local key, pair_links = GetKey(p1, p2), self[_pair_links]
 			local links = pair_links[key]
 
@@ -482,7 +506,7 @@ LinksClass = class.Define(function(Links)
 
 	--- DOCME
 	-- @function Links:Links
-	-- @pobject object
+	-- @tparam Object object
 	-- @string sub
 	-- @treturn iterator X
 	Links.Links = coro.Iterator(function(L, object, sub)
@@ -498,7 +522,7 @@ LinksClass = class.Define(function(Links)
 	end)
 
 	--- DOCME
-	-- @pobject object
+	-- @tparam Object object
 	function Links:RemoveTag (object)
 		local proxy = Proxy(self, object)
 
@@ -520,35 +544,39 @@ LinksClass = class.Define(function(Links)
 	end
 
 	--- DOCME
-	-- @pobject object
+	-- @tparam Object object
 	-- @string name
 	function Links:SetTag (object, name)
-		assert(object and self[_alive](object), "Invalid object")
+		assert(object ~= nil, "Invalid object")
+		assert(self[_tag_db]:Exists(name), "Tag does not exist")
 
-		local proxies = self[_proxies]
+		if self[_alive](object) then
+			-- Associate a fresh proxy with the object. Put it in the object list.
+			local proxies = self[_proxies]
 
-		assert(not proxies[object], "Object already tagged")
+			assert(not proxies[object], "Object already tagged")
 
-		local proxy = { id = self[_objects]:Insert(object), name = name }
+			local proxy = { id = self[_objects]:Insert(object), name = name }
 
-		proxies[object] = proxy
+			proxies[object] = proxy
 
-		--
-		SetInTaggedList(self, name, proxy.id, proxy)
+			-- Add the proxy to a list, so that the object may be enumerated.
+			SetInTaggedList(self, name, proxy.id, proxy)
 
-		--
-		local on_assign = self[_on_assign]
+			-- Perform any user-defined assign logic.
+			local on_assign = self[_on_assign]
 
-		if on_assign then
-			on_assign(object)
+			if on_assign then
+				on_assign(object)
+			end
+			--[[
+					-- There may be many objects, so deal with just a slice at a time.
+					else
+						index = M.CleanUp(index, 15)
+					end
+				^^ ??????
+			]]
 		end
-		--[[
-				-- There may be many objects, so deal with just a slice at a time.
-				else
-					index = M.CleanUp(index, 15)
-				end
-			^^ ??????
-		]]
 	end
 
 	--- DOCME
@@ -562,7 +590,7 @@ LinksClass = class.Define(function(Links)
 			for _, proxy in pairs(list) do
 				local object = Object(L, proxy)
 
-				if object then
+				if object ~= nil then
 					yield(object)
 				end
 			end
@@ -570,15 +598,44 @@ LinksClass = class.Define(function(Links)
 	end)
 
 	--- Class constructor.
-	function Links:__cons (tags, alive)
-		assert(class.Type(tags) == Tags, "Non-tags argument")
+	-- @tparam Tags tag_db Tag database, as used by @{Links:SetTag}.
+	-- @callable alive Called as `alive(object)`, to indicate whether _object_ remains valid as
+	-- defined by the user.
+	--
+	-- It is assumed that, if _object_ is not alive, that will not change.
+	function Links:__cons (tag_db, alive)
+		assert(class.Type(tag_db) == Tags, "Non-tags argument")
+
+		-- Since objects will tend to be GC objects, e.g. tables or userdata, some care is taken
+		-- to avoid reference cycles. The layout and considerations are as follows:
+		--
+		-- objects: Array of object references. This is a StableArray, which lets integer ID's be
+		-- used interchangeably with these references.
+		--
+		-- pair_links: Map, key(id #1, id #2) -> Array of links. Each key is built from two linked
+		-- objects' ID's (i.e. their positions in the objects array); the corresponding array value
+		-- holds all links between those same objects.
+		--
+		-- proxies: Map, object reference -> { object id, tag name, proxy_links }. The value (i.e.
+		-- proxy) contains the ID of the proxied object (i.e. its position in the objects array),
+		-- the object's tag, and a list of objects, described next.
+		--
+		-- proxy_links: Map, object id -> key(id #1, id #2). Each key is the ID of an object to
+		-- which the proxied object is linked, and the key (used for lookup into pair_links and
+		-- tagged_objects) formed by the linked objects' ID's is the value.
+		--
+		-- tagged_lists: Map, tag name -> tagged_objects. The key is an object's tag, as found in
+		-- its proxy; the value is described next.
+		--
+		-- tagged_objects: Map, key(id #1, id #2) -> proxy. These are the same key and proxy found
+		-- in pair_links and proxy_links, respectively.
 
 		self[_alive] = alive
-		self[_objects] = SparseArray()
+		self[_objects] = StableArray()
 		self[_pair_links] = {}
 		self[_proxies] = {}
+		self[_tag_db] = tag_db
 		self[_tagged_lists] = {}
-		self[_tags] = tags
 	end
 end)
 
