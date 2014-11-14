@@ -299,7 +299,7 @@ return class.Define(function(Tags)
 
 	do
 		-- Sublink class definition --
-		local Sublink = class.Define(function(Sublink)
+		local SublinkClass = class.Define(function(Sublink)
 			--- DOCME
 			function Sublink:GetName ()
 				return self[_name]
@@ -388,7 +388,7 @@ return class.Define(function(Tags)
 					new = {}
 
 					for name, sub in pairs(sub_links) do
-						local stype, obj, link_to = type(sub), Sublink(name)
+						local stype, obj, link_to = type(sub), SublinkClass(name)
 
 						--
 						if stype == "table" then

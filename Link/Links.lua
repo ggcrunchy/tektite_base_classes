@@ -44,10 +44,10 @@ local Tags = require("tektite_base_classes.Link.Tags")
 
 -- Unique member keys (Links) --
 local _alive = {}
-local _array = {}
 local _objects = {}
 local _on_assign = {}
 local _on_remove = {}
+local _pair_links = {}
 local _proxies = {}
 local _tagged_lists = {}
 local _tags = {}
@@ -89,7 +89,7 @@ end
 --
 local function LinksIter (L, p1, p2)
 	local key = GetKey(p1, p2)
-	local t = key and L[_array][key]
+	local t = key and L[_pair_links][key]
 
 	if t then
 		return ipairs(t)
@@ -112,7 +112,7 @@ end
 
 --
 local function RemoveObject (L, id, object)
-	local arr, proxies = L[_array], L[_proxies]
+	local pair_links, proxies = L[_pair_links], L[_proxies]
 
 	--
 	local proxy = proxies[object]
@@ -120,7 +120,7 @@ local function RemoveObject (L, id, object)
 	proxies[object], proxy.id = nil
 
 	for _, v in LinkKeys(proxy) do
-		for _, link in pairs(arr[v]) do
+		for _, link in ipairs(pair_links[v]) do
 			link:Break()
 		end
 	end
@@ -159,8 +159,8 @@ end
 -- --
 local LinksClass
 
--- Link class definition --
-local SingleLink = class.Define(function(Link)
+-- SingleLink class definition --
+local SingleLinkClass = class.Define(function(Link)
 	-- Helper to find a link for a proxy pair
 	local function FindLink (parent, p1, p2, link)
 		for i, v in LinksIter(parent, p1, p2) do
@@ -188,13 +188,13 @@ local SingleLink = class.Define(function(Link)
 		local obj2 = Object(parent, p2)
 
 		if obj1 and obj2 then
-			local key, arr = GetKey(p1, p2), parent[_array]
-			local links = arr[key]
+			local key, pair_links = GetKey(p1, p2), parent[_pair_links]
+			local links = pair_links[key]
 
 			array_funcs.Backfill(links, FindLink(parent, p1, p2, self))
 
 			if #links == 0 then
-				arr[key], p1[p2.id], p2[p1.id] = nil
+				pair_links[key], p1[p2.id], p2[p1.id] = nil
 			end
 		end
 
@@ -338,10 +338,10 @@ LinksClass = class.Define(function(Links)
 	-- @string sub
 	-- @treturn uint C
 	function Links:CountLinks (object, sub)
-		local proxy, arr, count = Proxy(self, object), self[_array], 0
+		local proxy, pair_links, count = Proxy(self, object), self[_pair_links], 0
 
 		for _, v in LinkKeys(proxy) do
-			for _, link in pairs(arr[v]) do
+			for _, link in ipairs(pair_links[v]) do
 				if Match1(link, proxy, sub) or Match2(link, proxy, sub) then
 					count = count + 1
 				end
@@ -428,10 +428,10 @@ LinksClass = class.Define(function(Links)
 	-- @string sub
 	-- @treturn boolean X
 	function Links:HasLinks (object, sub)
-		local proxy, arr = Proxy(self, object), self[_array]
+		local proxy, pair_links = Proxy(self, object), self[_pair_links]
 
 		for _, v in LinkKeys(proxy) do
-			for _, link in pairs(arr[v]) do
+			for _, link in ipairs(pair_links[v]) do
 				if Match1(link, proxy, sub) or Match2(link, proxy, sub) then
 					return true
 				end
@@ -446,7 +446,7 @@ LinksClass = class.Define(function(Links)
 	-- @pobject object2
 	-- @string sub1
 	-- @string sub2
-	-- @treturn LinkHandle L
+	-- @treturn Link L
 	-- @treturn string S
 	-- @treturn boolean B
 	function Links:LinkObjects (object1, object2, sub1, sub2)
@@ -460,19 +460,19 @@ LinksClass = class.Define(function(Links)
 
 			-- Lookup the links already associated with this pairing. If this is the first,
 			-- generate the key and list and hook everything up.
-			local key, arr = GetKey(p1, p2), self[_array]
-			local links = arr[key]
+			local key, pair_links = GetKey(p1, p2), self[_pair_links]
+			local links = pair_links[key]
 
 			if not key then
 				key, links = strings.PairToKey(p1.id, p2.id), {}
 
-				arr[key], p1[p2.id], p2[p1.id] = links, key, key
+				pair_links[key], p1[p2.id], p2[p1.id] = links, key, key
 			end
 
 			-- Install the link.
-			local link = SingleLink(self, p1, p2, sub1, sub2)
+			local link = SingleLinkClass(self, p1, p2, sub1, sub2)
 
-			arr[#arr + 1] = link
+			links[#links + 1] = link
 
 			return link
 		end
@@ -486,10 +486,10 @@ LinksClass = class.Define(function(Links)
 	-- @string sub
 	-- @treturn iterator X
 	Links.Links = coro.Iterator(function(L, object, sub)
-		local proxy, arr = Proxy(L, object), L[_array]
+		local proxy, pair_links = Proxy(L, object), L[_pair_links]
 
 		for _, v in LinkKeys(proxy) do
-			for _, link in pairs(arr[v]) do
+			for _, link in ipairs(pair_links[v]) do
 				if Match1(link, proxy, sub) or Match2(link, proxy, sub) then
 					yield(link)
 				end
@@ -574,8 +574,8 @@ LinksClass = class.Define(function(Links)
 		assert(class.Type(tags) == Tags, "Non-tags argument")
 
 		self[_alive] = alive
-		self[_array] = {}
 		self[_objects] = SparseArray()
+		self[_pair_links] = {}
 		self[_proxies] = {}
 		self[_tagged_lists] = {}
 		self[_tags] = tags
