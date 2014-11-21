@@ -33,10 +33,15 @@ local pairs = pairs
 -- Modules --
 local class = require("tektite_core.class")
 local index_funcs = require("tektite_core.array.index")
+local interval_funcs = require("tektite_core.array.interval")
 local var_preds = require("tektite_core.var.predicates")
 
 -- Imports --
+local IndexAfterInsert = interval_funcs.IndexAfterInsert
+local IndexAfterRemove = interval_funcs.IndexAfterRemove
 local IndexInRange = index_funcs.IndexInRange
+local IntervalAfterInsert = interval_funcs.IntervalAfterInsert
+local IntervalAfterRemove = interval_funcs.IntervalAfterRemove
 local IsCallable = var_preds.IsCallable
 local IsCountable = var_preds.IsCountable
 local IsType = class.IsType
@@ -104,13 +109,13 @@ local IntervalClass = class.Define(function(Interval)
 	end
 end)
 
---
-InsertOps[_intervals] = function(I, index, count, new_size)
+-- Insert-related interval update
+InsertOps[_intervals] = function(I, index, count)
 	I[_start], I[_count] = IntervalAfterInsert(I[_start], I[_count], index, count)
 end
 
---
-RemoveOps[_intervals] = function(I, index, count, new_size)
+-- Remove-related interval update
+RemoveOps[_intervals] = function(I, index, count)
 	I[_start], I[_count] = IntervalAfterRemove(I[_start], I[_count], index, count)
 end
 
@@ -165,19 +170,20 @@ local SpotClass = class.Define(function(Spot)
 	end
 end)
 
---
+-- Insert-related spot update
 InsertOps[_spots] = function(S, index, count, new_size)
 	S[_index] = IndexAfterInsert(S[_index], index, count, new_size, S[_is_add_spot])
 end
 
---
+-- Remove-related spot update
 RemoveOps[_spots] = function(S, index, count, new_size)
 	S[_index] = IndexAfterRemove(S[_index], index, count, new_size, S[_is_add_spot], S[_can_migrate])
 end
 
 -- Sequence class definition --
 return class.Define(function(Sequence)
-	--- DOCME
+	--- DOCMEMORE
+	-- @treturn Interval I
 	function Sequence:AddInterval ()
 		local interval = IntervalClass(self)
 
@@ -186,20 +192,16 @@ return class.Define(function(Sequence)
 		return interval
 	end
 
-	--- DOCME
+	--- DOCMEMORE
 	-- @bool is_add_spot This spot can occupy the position immediately after the sequence?
 	-- @bool can_migrate This spot can migrate if the part it monitors is removed?
+	-- @treturn Spot S
 	function Sequence:AddSpot (is_add_spot, can_migrate)
 		local spot = SpotClass(self, is_add_spot, can_migrate)
 
 		insert(self[_spots], spot)
 
 		return spot
-	end
-
-	--- DOCME
-	function Sequence:Append (count, ...)
-		--
 	end
 
 	-- Element update helper
@@ -213,16 +215,25 @@ return class.Define(function(Sequence)
 		end
 	end
 
-	-- --
-	local In = { _intervals, _spots }
+	--- Appends new items.
+	-- @uint count Count of items to add.
+	-- @param ... Insertion arguments.
+	function Sequence:Append (count, ...)
+		assert(count > 0, "Invalid append")
 
-	-- Inserts new items
-	-- index: Insertion index
-	-- count: Count of items to add
-	-- ...: Insertion arguments
-	--------------------------------
+		local n = #self
+
+		Update(self, InsertOps, n + 1, count, n + count)
+
+		self[_insert](n + 1, count, ...)
+	end
+
+	--- Inserts new items.
+	-- @uint index Insertion index.
+	-- @uint count Count of items to add.
+	-- @param ... Insertion arguments.
 	function Sequence:Insert (index, count, ...)
-		assert(self:IsItemValid(index, true) and count > 0)
+		assert(self:IsItemValid(index, true) and count > 0, "Invalid insert")
 
 		Update(self, InsertOps, index, count, #self + count)
 
@@ -249,12 +260,11 @@ return class.Define(function(Sequence)
 		end
 	end
 
-	-- Removes a series of items
-	-- index: Removal index
-	-- count: Count of items to remove
-	-- ...: Removal arguments
-	-- Returns: Count of items removed
-	-----------------------------------
+	--- Removes a series of items.
+	-- @uint index Removal index.
+	-- @uint count Count of items to remove.
+	-- @param ... Removal arguments.
+	-- @treturn uint Count of items removed.
 	function Sequence:Remove (index, count, ...)
 		local cur_size = #self
 
