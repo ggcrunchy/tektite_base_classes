@@ -325,7 +325,7 @@ return class.Define(function(Tags)
 
 		--
 		local function AddInterface (sub, what)
-			adaptive.AddToSet(sub, _interfaces, what)
+			adaptive.AddToSet_Member(sub, _interfaces, what)
 		end
 
 		--
@@ -344,7 +344,7 @@ return class.Define(function(Tags)
 		-- @param name
 		-- @param what
 		function Tags:ImpliesInterface (name, what)
-			adaptive.AddToSet(self[_implies], name, what)
+			adaptive.AddToSet_Member(self[_implies], name, what)
 		end
 
 		--- DOCME
@@ -363,7 +363,7 @@ return class.Define(function(Tags)
 				end
 			end
 
-			adaptive.AddToSet(implemented_by, what, name)
+			adaptive.AddToSet_Member(implemented_by, what, name)
 		end
 
 		--- DOCME
