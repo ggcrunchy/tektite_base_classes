@@ -49,7 +49,7 @@ local _free = {}
 
 -- StableArray class definition --
 return class.Define(function(StableArray)
-	--- Removes all elements from the array and resets the free stack.
+	--- Removes all elements from the array.
 	function StableArray:Clear ()
 		self[_array], self[_free] = {}, 0
 	end
@@ -67,7 +67,7 @@ return class.Define(function(StableArray)
 		elseif IsNaN(elem) then
 			elem = NaN
 
-		-- Elements of type "number" are ambiguous when compared to free stack components.
+		-- Elements of type "number" are ambiguous when compared to free queue components.
 		elseif type(elem) == "number" then
 			elem = Number
 		end
@@ -75,7 +75,7 @@ return class.Define(function(StableArray)
 		return elem
 	end
 
-	-- Set (arbitrary) metatable on special values, for easy lookup
+	-- Set (arbitrary) metatable on special values, for easy lookup.
 	setmetatable(False, Nil)
 	setmetatable(NaN, Nil)
 	setmetatable(Nil, Nil)
@@ -85,7 +85,7 @@ return class.Define(function(StableArray)
 	end
 
 	-- Helper to scan a range
-	local function AuxFind (arr, elem, from, to)
+	local function AuxFind (arr, from, to, elem)
 		for i = from, to do
 			if arr[i] == elem then
 				return i
@@ -105,8 +105,10 @@ return class.Define(function(StableArray)
 	end
 
 	--- Finds _elem_ in the array.
-	-- @param elem
-	-- @treturn uint Slot index, or **nil** if _elem_ was not found.
+	--
+	-- If the array contains multiple instances of _elem_, only one is found.
+	-- @param elem Element to find.
+	-- @treturn ?|uint|nil Slot index, or **nil** if _elem_ was not found.
 	function StableArray:Find (elem)
 		local index = Find(self[_array], elem)
 
@@ -128,8 +130,10 @@ return class.Define(function(StableArray)
 	end
 
 	--- Removes _elem_ from the array, cf. @{StableArray:RemoveAt}.
-	-- @param elem
-	-- @treturn uint Slot index of _elem_, or **nil** if it was not found.
+	--
+	-- If the array contains multiple instances of _elem_, only one is found and removed.
+	-- @param elem Element to remove.
+	-- @treturn ?|uint|nil Slot index of _elem_, or **nil** if it was not found.
 	function StableArray:FindAndRemove (elem)
 		local index = Find(self[_array], elem)
 
@@ -157,8 +161,8 @@ return class.Define(function(StableArray)
 	-- @uint index Slot index.
 	-- @return If the slot is in use, element in the slot; otherwise, **nil**.
 	--
-	-- **N.B.** If **nil** elements have been inserted, @{StableArray:InUse} can be used to
-	-- distinguish a missing value from a **nil** element.
+	-- **N.B.** When **nil** elements might have been inserted, @{StableArray:InUse} can be
+	-- used to distinguish missing values from **nil** elements.
 	function StableArray:Get (index)
 		local arr = self[_array]
 
@@ -174,12 +178,12 @@ return class.Define(function(StableArray)
 	--
 	-- If this is callable, the value is instead the result of `null(element)`, _element_
 	-- being whatever occupies the slot.
+	-- @param nil_elem Value to mark **nil** elements.
 	-- @treturn array Copy of the stable array's elements.
 	--
-	-- **N.B.** The array can contain holes, either because the element itself was **nil**
-	-- or _null_ or any element is **nil**.
+	-- **N.B.** The array can contain holes if one of _null_ or _nil\_elem_ is missing.
 	-- @see StableArray:InUse, StableArray:__len
-	function StableArray:GetArray (null)
+	function StableArray:GetArray (null, nil_elem)
 		local arr, out = self[_array], {}
 		local is_callable = IsCallable(null)
 
@@ -189,7 +193,13 @@ return class.Define(function(StableArray)
 			local elem = arr[i]
 
 			if type(elem) ~= "number" then
-				out[i] = DeFix(arr, i)
+				local raw = DeFix(arr, i)
+
+				if raw == nil then
+					out[i] = nil_elem
+				else
+					out[i] = raw
+				end
 			elseif is_callable then
 				out[i] = null(elem)
 			else
@@ -212,7 +222,7 @@ return class.Define(function(StableArray)
 	end
 
 	--- Inserts _elem_ into the array.
-	-- @param elem
+	-- @param elem Element to add.
 	-- @treturn uint Slot index at which _elem_ was inserted.
 	function StableArray:Insert (elem)
 		local arr, index = self[_array]
@@ -243,7 +253,7 @@ return class.Define(function(StableArray)
 	end
 
 	--- Iterator.
-	-- @{ipairs}-style iterator over the used slots of the stable array.
+	-- @{ipairs}-style iterator over the in-use slots of the array.
 	-- @treturn iterator Supplies slot index, element in slot.
 	function StableArray:Ipairs ()
 		return AuxIpairs, self, 0
@@ -264,22 +274,29 @@ return class.Define(function(StableArray)
 	-- If the slot is not in use, this is a no-op.
 	-- @see StableArray:InUse
 	function StableArray:RemoveAt (index)
-		if InUse(self[_array], index) then
-			Remove(self, index)
+		local arr = self[_array]
+
+		if InUse(arr, index) then
+			Remove(self, arr[index] == Number and -index or index)
 		end
 	end
 
-	--- Clears the stable array and loads elements from a source array.
-	-- @array arr Array used to load the stable array.
+	--- Clears the stable array and loads elements from a stock Lua array.
+	-- @array arr Array used to populate the stable array.
 	-- @param null If non-**nil**, instances of _null_ will be removed from the array
 	-- generated by _arr_, leaving those slots unused.
+	-- @param nil_elem If non-**nil**, instances of _nil\_elem_ will be replaced by **nil**.
 	-- @see StableArray:Clear
-	function StableArray:SetArray (arr, null)
+	function StableArray:SetArray (arr, null, nil_elem)
 		local into, n, free, has_any = {}, #arr, 0
 
 		for i = n, 1, -1 do
 			local elem = arr[i]
 			local non_null = elem ~= null
+
+			if elem == nil_elem then
+				elem = nil
+			end
 
 			if has_any or non_null then
 				if non_null then
@@ -293,6 +310,30 @@ return class.Define(function(StableArray)
 		end
 
 		self[_array], self[_free] = into, free
+	end
+
+	--- Updates the element at a slot.
+	--
+	-- If the slot is not in use, this is a no-op.
+	-- @uint index Slot index of element.
+	-- @param elem Element to add.
+	-- @treturn boolean Was the element updated?
+	-- @return If the element was updated, the previous value.
+	-- @see StableArray:InUse
+	function StableArray:Update (index, elem)
+		local arr = self[_array]
+
+		if InUse(arr, index) then
+			local old = DeFix(arr, index)
+
+			arr[-index] = nil
+
+			Add(arr, index, elem)
+
+			return true, old
+		else
+			return false
+		end
 	end
 
 	--- Class constructor.
