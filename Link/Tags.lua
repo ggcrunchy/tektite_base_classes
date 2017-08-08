@@ -245,6 +245,17 @@ return class.Define(function(Tags)
 		function Tags:HasSublink (name, sub)
 			return FindSublink(self, name, sub) ~= nil
 		end
+
+		--- Predicate.
+		-- @param name
+		-- @string sub
+		-- @param what
+		-- @treturn boolean X
+		function Tags:ImplementedBySublink (name, sub, what)
+			local sub_link = FindSublink(self, name, sub)
+
+			return sub_link ~= nil and sub_link:Implements(what)
+		end
 	end
 
 	do
@@ -341,16 +352,16 @@ return class.Define(function(Tags)
 		end
 
 		--- DOCME
-		-- @param name
-		-- @param what
-		function Tags:ImpliesInterface (name, what)
-			adaptive.AddToSet_Member(self[_implies], name, what)
-		end
-
-		--- DOCME
 		-- @treturn iterator I
 		function Tags:Implementors (what)
 			return TagAndChildren(self, self[_implemented_by][what], true)
+		end
+
+		--- DOCME
+		-- @param name
+		-- @param what
+		function Tags:ImplyInterface (name, what)
+			adaptive.AddToSet_Member(self[_implies], name, what)
 		end
 
 		--
