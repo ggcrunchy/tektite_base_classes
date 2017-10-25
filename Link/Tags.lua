@@ -30,6 +30,7 @@
 local assert = assert
 local ipairs = ipairs
 local pairs = pairs
+local setmetatable = setmetatable
 local type = type
 
 -- Modules --
@@ -173,21 +174,31 @@ return class.Define(function(Tags)
 
 	do
 		--
-		local function AuxHasSublink (T, name, sub)
+		local function AuxHasSublink (T, name, sub, arg)
 			--
-			local sub_links = T[_tags][name].sub_links
+			local tag = T[_tags][name]
+			local sub_links = tag.sub_links
 
 			if sub_links then
 				local sublink = sub_links[sub]
 
 				if sublink then
 					return sublink
+				elseif arg == "template" then
+					local templates = tag.templates
+
+					return templates and templates[sub]
+				elseif arg then
+					local instances = tag.instances
+					local object_list = instances and instances[arg]
+
+					return object_list and object_list[sub]
 				end
 			end
 
 			--
 			for _, tname in Parents(T, name) do
-				local sublink = AuxHasSublink(T, tname, sub)
+				local sublink = AuxHasSublink(T, tname, sub, arg)
 
 				if sublink then
 					return sublink
@@ -200,13 +211,13 @@ return class.Define(function(Tags)
 		local Name2, Sub2, Sublink2
 
 		--
-		local function FindSublink (T, name, sub)
+		local function FindSublink (T, name, sub, arg)
 			if name == Name1 and sub == Sub1 then
 				return Sublink1
 			elseif name == Name2 and sub == Sub2 then
 				return Sublink2
 			else
-				local sublink = AuxHasSublink(T, name, sub)
+				local sublink = AuxHasSublink(T, name, sub, arg)
 
 				Name1, Sub1, Sublink1 = name, sub, sublink
 				Name2, Sub2, Sublink2 = Name1, Sub1, Sublink1
@@ -217,10 +228,10 @@ return class.Define(function(Tags)
 
 		--- DOCME
 		function Tags:CanLink (name1, name2, object1, object2, sub1, sub2, arg)
-			local so1, is_cont, passed, why = FindSublink(self, name1, sub1), true
+			local so1, is_cont, passed, why = FindSublink(self, name1, sub1, object1), true
 
 			if so1 then
-				local so2 = FindSublink(self, name2, sub2)
+				local so2 = FindSublink(self, name2, sub2, object2)
 
 				if so2 then
 					passed, why, is_cont = so1[_can_link](object1, object2, so1, so2, arg)
@@ -241,20 +252,43 @@ return class.Define(function(Tags)
 		--- DOCME
 		-- @string name
 		-- @string sub
+		-- @param[opt] arg
 		-- @treturn boolean
-		function Tags:HasSublink (name, sub)
-			return FindSublink(self, name, sub) ~= nil
+		function Tags:HasSublink (name, sub, arg)
+			return FindSublink(self, name, sub, arg) ~= nil
 		end
 
 		--- Predicate.
 		-- @param name
 		-- @string sub
 		-- @param what
+		-- @param[opt] arg
 		-- @treturn boolean X
-		function Tags:ImplementedBySublink (name, sub, what)
-			local sub_link = FindSublink(self, name, sub)
+		function Tags:ImplementedBySublink (name, sub, what, arg)
+			local sub_link = FindSublink(self, name, sub, arg)
 
 			return sub_link ~= nil and sub_link:Implements(what)
+		end
+
+		--- DOCME
+		-- @string name
+		-- @string sub
+		-- @param object
+		-- @treturn ?|string|nil X
+		function Tags:Instantiate (name, sub, object)
+			local template, instance = FindSublink(self, name, sub, "template")
+
+			if template then
+				local tag, new = self[_tags][name], template:Clone()
+				local object_list = tag.instances[object] or { id = 0 }
+				local id = object_list.id + 1
+
+				instance = ("%s:%i"):format(sub, id)
+					
+				tag.instances[object], object_list[instance], object_list.id = object_list, new, id
+			end
+
+			return instance
 		end
 	end
 
@@ -327,6 +361,15 @@ return class.Define(function(Tags)
 				return adaptive.InSet(self[_interfaces], what)
 			end
 
+			--- Class cloner.
+			function Sublink:__clone (S)
+				self[_name] = S[_name]
+
+				for k in adaptive.IterSet(S[_interfaces]) do
+					self[_interfaces] = adaptive.AddToSet(self[_interfaces], k)
+				end
+			end
+
 			--- Class constructor.
 			-- @string name Sublink name.
 			function Sublink:__cons (name)
@@ -377,6 +420,9 @@ return class.Define(function(Tags)
 			adaptive.AddToSet_Member(implemented_by, what, name)
 		end
 
+		-- --
+		local ObjectListMT = { __mode = "k" }
+
 		--- DOCME
 		-- @string name
 		-- @ptable[opt] options
@@ -385,7 +431,7 @@ return class.Define(function(Tags)
 
 			assert(not tags[name], "Tag already exists")
 
-			local tag, new = {}
+			local tag, new, tlist = {}
 
 			if options then
 				-- We track the tag's parent and child tag names, so that these may be iterated.
@@ -403,7 +449,7 @@ return class.Define(function(Tags)
 				end
 
 				-- Add any sublinks.
-				local sub_links, implies = options.sub_links, self[_implies]
+				local sub_links, templates, implies = options.sub_links, options.templates, self[_implies]
 
 				if sub_links then
 					new = {}
@@ -440,7 +486,12 @@ return class.Define(function(Tags)
 						end
 
 						--
-						new[name] = obj
+						if templates and templates[name] then
+							tlist = tlist or {}
+							tlist[name] = obj
+						else
+							new[name] = obj
+						end
 					end
 				end
 
@@ -458,7 +509,11 @@ return class.Define(function(Tags)
 			end
 
 			--
-			tag.nparents, tag.sub_links = #(options or ""), new
+			tag.nparents, tag.sub_links, tag.templates = #(options or ""), new, tlist
+
+			if tlist then
+				tag.instances = setmetatable({}, ObjectListMT)
+			end
 
 			tags[name] = tag
 		end
@@ -483,6 +538,7 @@ return class.Define(function(Tags)
 		-- @string name
 		-- @treturn iterator I
 		function Tags:Sublinks (name)
+			-- TODO: templates?
 			return IterStrList(self, EnumSublinks, name)
 		end
 	end
