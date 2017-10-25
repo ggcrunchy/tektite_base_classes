@@ -134,9 +134,12 @@ return class.Define(function(Tags)
 		return self[_tags][name] ~= nil
 	end
 
+	--
+	local StrKeys = { instances = true, nparents = true, sub_links = true, templates = true }
+
 	-- Helper to distinguish prospective property keys
 	local function IsProp (what)
-		return type(what) == "string" and what ~= "sub_links"
+		return type(what) == "string" and not StrKeys[what]
 	end
 
 	--- DOCME
@@ -294,7 +297,7 @@ return class.Define(function(Tags)
 
 		--- DOCME
 		-- @string name
-		-- @string sub
+		-- @string instance
 		-- @param object
 		-- @treturn boolean X
 		function Tags:Release (name, instance, object)
