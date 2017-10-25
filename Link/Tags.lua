@@ -44,6 +44,7 @@ local _can_link = {}
 local _interfaces = {}
 local _link_to = {}
 local _name = {}
+local _template = {}
 
 -- Unique member keys (Tags) --
 local _implemented_by = {}
@@ -290,6 +291,21 @@ return class.Define(function(Tags)
 
 			return instance
 		end
+
+		--- DOCME
+		-- @string name
+		-- @string sub
+		-- @param object
+		-- @treturn boolean X
+		function Tags:Release (name, instance, object)
+			local exists = FindSublink(self, name, instance, object) ~= nil
+
+			if exists then
+				self[_tags][name].instances[object][instance] = nil
+			end
+
+			return exists
+		end
 	end
 
 	do
@@ -358,16 +374,12 @@ return class.Define(function(Tags)
 			-- @param what
 			-- @treturn boolean X
 			function Sublink:Implements (what)
-				return adaptive.InSet(self[_interfaces], what)
+				return adaptive.InSet((self[_template] or self)[_interfaces], what)
 			end
 
 			--- Class cloner.
 			function Sublink:__clone (S)
-				self[_name] = S[_name]
-
-				for k in adaptive.IterSet(S[_interfaces]) do
-					self[_interfaces] = adaptive.AddToSet(self[_interfaces], k)
-				end
+				self[_name], self[_template] = S[_name], S
 			end
 
 			--- Class constructor.
@@ -377,6 +389,15 @@ return class.Define(function(Tags)
 			end
 		end)
 
+		--- DOCME
+		function Tags:GetTemplate (name, instance, object)
+			local instances = self[_tags][name].instances
+			local object_list = instances and instances[object]
+			local sublink = object_list and object_list[instance]
+
+			return sublink and sublink[_template]:GetName()
+		end
+			
 		--
 		local function AddInterface (sub, what)
 			adaptive.AddToSet_Member(sub, _interfaces, what)
@@ -520,26 +541,44 @@ return class.Define(function(Tags)
 	end
 
 	do
+		-- TODO: instances (generalize MakeEnumerator / IterStrList?)
+
 		-- Enumerator body
-		local function EnumSublinks (T, str_list, name, count)
-			for _, tname in Parents(T, name) do
-				count = EnumSublinks(T, str_list, tname, count)
+		local function MakeEnumerator (key)
+			local function enum (T, str_list, name, count)
+				for _, tname in Parents(T, name) do
+					count = enum(T, str_list, tname, count)
+				end
+
+				--
+				for _, v in Pairs(T[_tags][name][key]) do
+					str_list[count + 1], count = v:GetName(), count + 1
+				end
+
+				return count
 			end
 
-			--
-			for _, v in Pairs(T[_tags][name].sub_links) do
-				str_list[count + 1], count = v:GetName(), count + 1
-			end
-
-			return count
+			return enum
 		end
+
+		--
+		local EnumSublinks = MakeEnumerator("sub_links")
 
 		--- DOCME
 		-- @string name
 		-- @treturn iterator I
 		function Tags:Sublinks (name)
-			-- TODO: templates?
 			return IterStrList(self, EnumSublinks, name)
+		end
+
+		--
+		local EnumTemplates = MakeEnumerator("templates")
+
+		--- DOCME
+		-- @string name
+		-- @treturn iterator I
+		function Tags:Templates (name)
+			return IterStrList(self, EnumTemplates, name)
 		end
 	end
 
