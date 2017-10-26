@@ -484,7 +484,8 @@ return class.Define(function(Tags)
 						if type(name) == "string" then
 							local last = name:sub(-1)
 
-							assert(last ~= "]", "Closing brackets are reserved for instanced templates")
+							assert(last ~= "]", "Closing right brackets are reserved for instanced templates")
+							assert(name:find(":") == nil, "Colons are reserved for compound IDs")
 
 							if last == "*" and not tag.instances then
 								tag.instances = table_funcs.Weak("k")
