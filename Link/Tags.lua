@@ -172,6 +172,18 @@ return class.Define(function(Tags)
 		Tags.HasChild = AuxHasChild
 	end
 
+	-- Nothing to iterate
+	local function NoOp () end
+
+	-- Iterate pairs()-style, if the table exists
+	local function Pairs (t)
+		if t then
+			return pairs(t)
+		else
+			return NoOp
+		end
+	end
+
 	do
 		--
 		local function AuxHasSublink (T, name, sub)
@@ -309,6 +321,42 @@ return class.Define(function(Tags)
 				return false
 			end
 		end
+
+		--- DOCME
+		function Tags:RenameInstanceLists (tagged_lists)
+			local lists = {}
+
+			for tag, list in pairs(tagged_lists) do
+				lists[tag] = self:RenameInstances(tag, list)
+			end
+
+			return lists
+		end
+
+		--- DOCME
+		function Tags:RenameInstances (tag, instances)
+			local ilist, has_instances = self[_tags][tag].instances
+
+			for k, v in Pairs(instances) do
+				if ilist[k] then
+					if not has_instances then
+						local old = instances
+
+						instances, has_instances = {}, true
+
+						for ik, iv in pairs(old) do
+							instances[ik] = iv
+						end
+					end
+
+					local newk = self:Instantiate(tag, k:sub(1, k:find("%[") - 1) .. "*")
+
+					instances[newk], instances[k] = v
+				end
+			end
+
+			return instances
+		end
 	end
 
 	do
@@ -349,18 +397,6 @@ return class.Define(function(Tags)
 			local tag = self[_tags][name]
 
 			return AuxParents, tag, tag and tag.nparents + 1 or 0
-		end
-	end
-
-	-- Nothing to iterate
-	local function NoOp () end
-
-	-- Iterate pairs()-style, if the table exists
-	local function Pairs (t)
-		if t then
-			return pairs(t)
-		else
-			return NoOp
 		end
 	end
 
@@ -471,12 +507,10 @@ return class.Define(function(Tags)
 
 						--
 						if type(name) == "string" then
-							local last = name:sub(-1)
-
-							assert(last ~= "]", "Closing right brackets are reserved for instanced templates")
+							assert((name:find("%[") and name:find("%]")) == nil, "Brackets are reserved for instanced templates")
 							assert(name:find(":") == nil, "Colons are reserved for compound IDs")
 
-							if last == "*" and not tag.instances then
+							if name:sub(-1) == "*" and not tag.instances then
 								tag.counters, tag.instances = {}, {}
 							end
 						end
