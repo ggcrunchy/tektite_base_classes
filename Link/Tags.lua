@@ -30,7 +30,6 @@
 local assert = assert
 local ipairs = ipairs
 local pairs = pairs
-local setmetatable = setmetatable
 local type = type
 
 -- Modules --
@@ -38,7 +37,6 @@ local adaptive = require("tektite_core.table.adaptive")
 local array_funcs = require("tektite_core.array.funcs")
 local class = require("tektite_core.class")
 local iterator_utils = require("iterator_ops.utils")
-local table_funcs = require("tektite_core.table.funcs")
 
 -- Unique member keys (Sublink) --
 local _can_link = {}
@@ -67,17 +65,17 @@ local IterStrList = iterator_utils.InstancedAutocacher(function()
 	end,
 
 	-- Setup --
-	function(T, enum, name_, as_set, object)
+	function(T, enum, name_, as_set, filter)
 		-- Build up the list of strings, accommodating the form of the source.
 		local count = 0
 
 		if as_set then
 			for base in adaptive.IterSet(name_) do
-				count = enum(T, str_list, base, count, object)
+				count = enum(T, str_list, base, count, filter)
 			end
 		else
 			for _, base in adaptive.IterArray(name_) do
-				count = enum(T, str_list, base, count, object)
+				count = enum(T, str_list, base, count, filter)
 			end
 		end
 
@@ -137,7 +135,7 @@ return class.Define(function(Tags)
 
 	-- Helper to distinguish prospective property keys
 	local function IsProp (what)
-		return type(what) == "string" and what ~= "instances" and what ~= "sub_links"
+		return type(what) == "string" and what ~= "counters" and what ~= "instances" and what ~= "sub_links"
 	end
 
 	--- DOCME
@@ -174,12 +172,9 @@ return class.Define(function(Tags)
 		Tags.HasChild = AuxHasChild
 	end
 
-	-- --
-	local Instances = table_funcs.Weak("k")
-
 	do
 		--
-		local function AuxHasSublink (T, name, sub, object)
+		local function AuxHasSublink (T, name, sub)
 			--
 			local tag = T[_tags][name]
 			local sub_links = tag.sub_links
@@ -189,17 +184,16 @@ return class.Define(function(Tags)
 
 				if sublink then
 					return sublink, sub_links
-				elseif object then
+				else
 					local instances = tag.instances[sub_links]
-					local object_list = instances and instances[object]
 
-					return object_list and object_list[sub], object_list
+					return instances and instances[sub], instances
 				end
 			end
 
 			--
 			for _, tname in Parents(T, name) do
-				local sublink, slist = AuxHasSublink(T, tname, sub, object)
+				local sublink, slist = AuxHasSublink(T, tname, sub)
 
 				if sublink then
 					return sublink, slist
@@ -212,13 +206,13 @@ return class.Define(function(Tags)
 		local Name2, Sub2, Sublink2
 
 		--
-		local function FindSublink (T, name, sub, object)
+		local function FindSublink (T, name, sub)
 			if name == Name1 and sub == Sub1 then
 				return Sublink1
 			elseif name == Name2 and sub == Sub2 then
 				return Sublink2
 			else
-				local sublink, slist = AuxHasSublink(T, name, sub, object)
+				local sublink, slist = AuxHasSublink(T, name, sub)
 
 				Name1, Sub1, Sublink1 = name, sub, sublink
 				Name2, Sub2, Sublink2 = Name1, Sub1, Sublink1
@@ -241,10 +235,10 @@ return class.Define(function(Tags)
 			elseif is_temp2 then
 				why = "Sublink #2 is a template: `" .. sub2 .. "`"
 			else
-				local so1 = FindSublink(self, name1, sub1, object1)
+				local so1 = FindSublink(self, name1, sub1)
 
 				if so1 then
-					local so2, passed = FindSublink(self, name2, sub2, object2)
+					local so2, passed = FindSublink(self, name2, sub2)
 
 					if so2 then
 						passed, why, is_cont = so1[_can_link](object1, object2, so1, so2, arg)
@@ -266,20 +260,18 @@ return class.Define(function(Tags)
 		--- DOCME
 		-- @string name
 		-- @string sub
-		-- @param[opt] object
 		-- @treturn boolean
-		function Tags:HasSublink (name, sub, object)
-			return FindSublink(self, name, sub, object) ~= nil
+		function Tags:HasSublink (name, sub)
+			return FindSublink(self, name, sub) ~= nil
 		end
 
 		--- Predicate.
 		-- @param name
 		-- @string sub
 		-- @param what
-		-- @param[opt] object
 		-- @treturn boolean X
-		function Tags:ImplementedBySublink (name, sub, what, object)
-			local sub_link = FindSublink(self, name, sub, object)
+		function Tags:ImplementedBySublink (name, sub, what)
+			local sub_link = FindSublink(self, name, sub)
 
 			return sub_link ~= nil and sub_link:Implements(what)
 		end
@@ -287,16 +279,14 @@ return class.Define(function(Tags)
 		--- DOCME
 		-- @string name
 		-- @string sub
-		-- @param object
 		-- @treturn ?|string|nil X
-		function Tags:Instantiate (name, sub, object)
+		function Tags:Instantiate (name, sub)
 			if IsTemplate(sub) then
-				local template, ilist = FindSublink(self, name, sub)
-				local object_list = ilist[object] or { id = 0 }
-				local id = object_list.id + 1
+				local tag, template, ilist = self[_tags][name], FindSublink(self, name, sub)
+				local id = (tag.counters[template] or 0) + 1
 				local instance = ("%s[%i]"):format(sub:sub(1, -2), id)
 					
-				ilist[object], object_list[instance], object_list.id = object_list, template:Clone(), id
+				ilist[instance], tag.counters[template] = template:Clone(), id
 
 				return instance
 			else
@@ -307,13 +297,12 @@ return class.Define(function(Tags)
 		--- DOCME
 		-- @string name
 		-- @string instance
-		-- @param object
 		-- @treturn boolean X
-		function Tags:Release (name, instance, object)
-			local sublink, ilist = FindSublink(self, name, instance, object)
+		function Tags:Release (name, instance)
+			local sublink, ilist = FindSublink(self, name, instance)
 
 			if sublink then
-				ilist[object][instance] = nil
+				ilist[instance] = nil
 
 				return true
 			else
@@ -393,7 +382,7 @@ return class.Define(function(Tags)
 
 			--- Class cloner.
 			function Sublink:__clone (S)
-				self[_name], self[_template] = S[_name], S
+				self[_can_link], self[_link_to], self[_name], self[_template] = S[_can_link], S[_link_to], S[_name], S
 			end
 
 			--- Class constructor.
@@ -488,7 +477,7 @@ return class.Define(function(Tags)
 							assert(name:find(":") == nil, "Colons are reserved for compound IDs")
 
 							if last == "*" and not tag.instances then
-								tag.instances = table_funcs.Weak("k")
+								tag.counters, tag.instances = {}, {}
 							end
 						end
 
@@ -549,25 +538,42 @@ return class.Define(function(Tags)
 
 	do
 		--
-		local function EnumSublinks (T, str_list, name, count, object)
+		local Filters = {
+			no_instances = function(name)
+				return name:sub(-1) ~= "]"
+			end,
+
+			no_templates = function(name)
+				return name:sub(-1) ~= "*"
+			end
+		}
+
+		--
+		local function EnumSublinks (T, str_list, name, count, filter)
 			--
 			for _, tname in Parents(T, name) do
-				count = EnumSublinks(T, str_list, tname, count, object)
+				count = EnumSublinks(T, str_list, tname, count, filter)
 			end
 
 			--
-			local tag = T[_tags][name]
+			local tag, was = T[_tags][name], count
 
 			for _, v in Pairs(tag.sub_links) do
 				str_list[count + 1], count = v:GetName(), count + 1
 			end
 
-			--
-			local instances = tag.instances
-			local object_list = instances and instances[object]
-
-			for _, v in Pairs(object_list) do
+			for _, v in Pairs(tag.instances) do
 				str_list[count + 1], count = v:GetName(), count + 1
+			end
+
+			--
+			if filter then
+				for i = count, was, -1 do
+					if not filter(str_list[i]) then
+						str_list[i] = str_list[count]
+						count, str_list[count] = count - 1
+					end
+				end
 			end
 
 			return count
@@ -575,10 +581,10 @@ return class.Define(function(Tags)
 
 		--- DOCME
 		-- @string name
-		-- @param[opt] object
+		-- @string[opt] filter
 		-- @treturn iterator I
-		function Tags:Sublinks (name, object)
-			return IterStrList(self, EnumSublinks, name, false, object)
+		function Tags:Sublinks (name, filter)
+			return IterStrList(self, EnumSublinks, name, false, Filters[filter])
 		end
 	end
 
