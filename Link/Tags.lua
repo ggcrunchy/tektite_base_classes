@@ -323,39 +323,27 @@ return class.Define(function(Tags)
 		end
 
 		--- DOCME
-		function Tags:RenameInstanceLists (tagged_lists)
+		function Tags:ReplaceInstanceLists (tagged_lists)
 			local lists = {}
 
 			for tag, list in pairs(tagged_lists) do
-				lists[tag] = self:RenameInstances(tag, list)
+				lists[tag] = self:ReplaceInstances(tag, list)
 			end
 
 			return lists
 		end
 
 		--- DOCME
-		function Tags:RenameInstances (tag, instances)
-			local ilist, has_instances = self[_tags][tag].instances
+		function Tags:ReplaceInstances (tag, instances)
+			local ilist, replacements = self[_tags][tag].instances, {}
 
 			for k, v in Pairs(instances) do
 				if ilist[k] then
-					if not has_instances then
-						local old = instances
-
-						instances, has_instances = {}, true
-
-						for ik, iv in pairs(old) do
-							instances[ik] = iv
-						end
-					end
-
-					local newk = self:Instantiate(tag, k:sub(1, k:find("%[") - 1) .. "*")
-
-					instances[newk], instances[k] = v
+					replacements[k] = self:Instantiate(tag, k:sub(1, k:find("%[") - 1) .. "*")
 				end
 			end
 
-			return instances
+			return replacements
 		end
 	end
 
