@@ -598,7 +598,7 @@ return class.Define(function(Tags)
 
 			--
 			if filter then
-				for i = count, was, -1 do
+				for i = count, was + 1, -1 do
 					if not filter(str_list[i]) then
 						str_list[i] = str_list[count]
 						count, str_list[count] = count - 1
