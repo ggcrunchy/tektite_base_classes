@@ -561,12 +561,20 @@ return class.Define(function(Tags)
 	do
 		--
 		local Filters = {
+			instances = function(name)
+				return name:sub(-1) == "]"
+			end,
+
 			no_instances = function(name)
 				return name:sub(-1) ~= "]"
 			end,
 
 			no_templates = function(name)
 				return name:sub(-1) ~= "*"
+			end,
+
+			templates = function(name)
+				return name:sub(-1) == "*"
 			end
 		}
 
