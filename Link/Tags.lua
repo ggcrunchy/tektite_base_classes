@@ -135,7 +135,7 @@ return class.Define(function(Tags)
 
 	-- Helper to distinguish prospective property keys
 	local function IsProp (what)
-		return type(what) == "string" and what ~= "counters" and what ~= "instances" and what ~= "sub_links"
+		return type(what) == "string" and what ~= "instances" and what ~= "sub_links"
 	end
 
 	--- DOCME
@@ -294,11 +294,11 @@ return class.Define(function(Tags)
 		-- @treturn ?|string|nil X
 		function Tags:Instantiate (name, sub)
 			if IsTemplate(sub) then
-				local tag, template, ilist = self[_tags][name], FindSublink(self, name, sub)
-				local id = (tag.counters[template] or 0) + 1
+				local template, ilist = FindSublink(self, name, sub)
+				local id = (self.counters[template] or 0) + 1
 				local instance = ("%s[%i]"):format(sub:sub(1, -2), id)
 					
-				ilist[instance], tag.counters[template] = template:Clone(), id
+				ilist[instance], self.counters[template] = template:Clone(), id
 
 				return instance
 			else
@@ -333,17 +333,33 @@ return class.Define(function(Tags)
 			return lists
 		end
 
+		--
+		local function Replace (T, tag, instance)
+			return T:Instantiate(tag, instance:sub(1, instance:find("%[") - 1) .. "*")
+		end
+
 		--- DOCME
 		function Tags:ReplaceInstances (tag, instances)
 			local ilist, replacements = self[_tags][tag].instances, {}
 
-			for k, v in Pairs(instances) do
+			for k in Pairs(instances) do
 				if ilist[k] then
-					replacements[k] = self:Instantiate(tag, k:sub(1, k:find("%[") - 1) .. "*")
+					replacements[k] = Replace(self, tag, k)
 				end
 			end
 
 			return replacements
+		end
+
+		--- DOCME
+		function Tags:ReplaceSingleInstance (tag, instance)
+			local ilist = self[_tags][tag].instances
+
+			if ilist and ilist[instance] then
+				return Replace(self, tag, instance)
+			else
+				return nil
+			end
 		end
 	end
 
@@ -499,7 +515,7 @@ return class.Define(function(Tags)
 							assert(name:find(":") == nil, "Colons are reserved for compound IDs")
 
 							if name:sub(-1) == "*" and not tag.instances then
-								tag.counters, tag.instances = {}, {}
+								self.counters, tag.instances = self.counters or {}, {}
 							end
 						end
 
