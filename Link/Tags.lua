@@ -172,6 +172,11 @@ return class.Define(function(Tags)
 		Tags.HasChild = AuxHasChild
 	end
 
+	--
+	local function IsTemplate (name)
+		return type(name) == "string" and name:sub(-1) == "*"
+	end
+
 	-- Nothing to iterate
 	local function NoOp () end
 
@@ -231,11 +236,6 @@ return class.Define(function(Tags)
 
 				return sublink, slist
 			end
-		end
-
-		--
-		local function IsTemplate (name)
-			return type(name) == "string" and name:sub(-1) == "*"
 		end
 
 		--- DOCME
@@ -576,6 +576,15 @@ return class.Define(function(Tags)
 
 	do
 		--
+		local Template
+
+		local function InstanceOf (name)
+			local where = name:find("%[")
+
+			return where and name:sub(where - 1) == Template
+		end
+
+		--
 		local Filters = {
 			instances = function(name)
 				return name:sub(-1) == "]"
@@ -630,7 +639,15 @@ return class.Define(function(Tags)
 		-- @string[opt] filter
 		-- @treturn iterator I
 		function Tags:Sublinks (name, filter)
-			return IterStrList(self, EnumSublinks, name, false, Filters[filter])
+			if filter then
+				if IsTemplate(filter) then
+					filter, Template = InstanceOf, filter:sub(1, -2)
+				else
+					filter = Filters[filter]
+				end
+			end
+
+			return IterStrList(self, EnumSublinks, name, false, filter)
 		end
 	end
 
