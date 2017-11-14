@@ -197,54 +197,51 @@ return class.Define(function(Tags)
 			local sub_links = tag.sub_links
 
 			if sub_links then
-				local sublink = sub_links[sub]
+				local instances = tag.instances
+				local sublink = sub_links[sub] or (instances and instances[sub])
 
 				if sublink then
-					return sublink, sub_links
-				else
-					local instances = tag.instances[sub_links]
-
-					return instances and instances[sub], instances
+					return sublink, sub_links, instances
 				end
 			end
 
 			--
 			for _, tname in Parents(T, name) do
-				local sublink, slist = AuxHasSublink(T, tname, sub)
+				local sublink, slist, ilist = AuxHasSublink(T, tname, sub)
 
 				if sublink then
-					return sublink, slist
+					return sublink, slist, ilist
 				end
 			end
 		end
 
 		-- --
-		local Name1, Sub1, Sublink1
-		local Name2, Sub2, Sublink2
+		local Name1, Sub1, Sublink1, SublinksList1, InstancesList1
+		local Name2, Sub2, Sublink2, SublinksList2, InstancesList2
 
 		--
 		local function FindSublink (T, name, sub)
 			if name == Name1 and sub == Sub1 then
-				return Sublink1
+				return Sublink1, SublinksList1, InstancesList1
 			elseif name == Name2 and sub == Sub2 then
-				return Sublink2
+				return Sublink2, SublinksList2, InstancesList2
 			else
-				local sublink, slist = AuxHasSublink(T, name, sub)
+				local sublink, slist, ilist = AuxHasSublink(T, name, sub)
 
-				Name1, Sub1, Sublink1 = name, sub, sublink
-				Name2, Sub2, Sublink2 = Name1, Sub1, Sublink1
+				Name1, Sub1, Sublink1, SublinksList1, InstancesList1 = name, sub, sublink, slist, ilist
+				Name2, Sub2, Sublink2, SublinksList2, InstancesList2 = Name1, Sub1, Sublink1, SublinksList1, InstancesList1
 
-				return sublink, slist
+				return sublink, slist, ilist
 			end
 		end
 
 		--- DOCME
 		function Tags:CanLink (name1, name2, object1, object2, sub1, sub2, arg)
-			local is_temp1, is_temp2, is_cont, why = IsTemplate(sub1), IsTemplate(sub2), true
+			local is_cont, why = true
 
-			if is_temp1 then
+			if IsTemplate(sub1) then
 				why = "Sublink #1 is a template: `" .. sub1 .. "`"
-			elseif is_temp2 then
+			elseif IsTemplate(sub2) then
 				why = "Sublink #2 is a template: `" .. sub2 .. "`"
 			else
 				local so1 = FindSublink(self, name1, sub1)
@@ -294,11 +291,11 @@ return class.Define(function(Tags)
 		-- @treturn ?|string|nil X
 		function Tags:Instantiate (name, sub)
 			if IsTemplate(sub) then
-				local template, ilist = FindSublink(self, name, sub)
-				local id = (self.counters[template] or 0) + 1
-				local instance = ("%s[%i]"):format(sub:sub(1, -2), id)
-					
-				ilist[instance], self.counters[template] = template:Clone(), id
+				local template, _, ilist = FindSublink(self, name, sub)
+				local id = (self.counters[sub] or 0) + 1
+				local instance = ("%s|%i|"):format(sub:sub(1, -2), id)
+
+				ilist[instance], self.counters[sub] = class.Clone(template), id
 
 				return instance
 			else
@@ -311,7 +308,7 @@ return class.Define(function(Tags)
 		-- @string instance
 		-- @treturn boolean X
 		function Tags:Release (name, instance)
-			local sublink, ilist = FindSublink(self, name, instance)
+			local sublink, _, ilist = FindSublink(self, name, instance)
 
 			if sublink then
 				ilist[instance] = nil
@@ -511,7 +508,7 @@ return class.Define(function(Tags)
 
 						--
 						if type(name) == "string" then
-							assert((name:find("%[") and name:find("%]")) == nil, "Brackets are reserved for instanced templates")
+							assert(name:find("|") == nil, "Pipes are reserved for instanced templates")
 							assert(name:find(":") == nil, "Colons are reserved for compound IDs")
 
 							if name:sub(-1) == "*" and not tag.instances then
@@ -587,11 +584,11 @@ return class.Define(function(Tags)
 		--
 		local Filters = {
 			instances = function(name)
-				return name:sub(-1) == "]"
+				return name:sub(-1) == "|"
 			end,
 
 			no_instances = function(name)
-				return name:sub(-1) ~= "]"
+				return name:sub(-1) ~= "|"
 			end,
 
 			no_templates = function(name)
