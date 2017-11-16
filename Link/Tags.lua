@@ -95,7 +95,7 @@ end)
 -- Tags class definition --
 return class.Define(function(Tags)
 	-- Forward references --
-	local Children, Is, Parents, TagAndChildren
+	local Children, GetTemplate, Is, Parents, ReplaceSingleInstance, TagAndChildren
 
 	-- Helper to resolve tags during iteration
 	local function Name (tag, i)
@@ -267,6 +267,14 @@ return class.Define(function(Tags)
 		end
 
 		--- DOCME
+		function Tags:GetTemplate (name, instance)
+			local pi, sub_links = instance:find("|"), self[_tags][name].sub_links
+			local template = (pi and sub_links) and instance:sub(1, pi - 1) .. "*"
+
+			return sub_links[template] and template
+		end
+
+		--- DOCME
 		-- @string name
 		-- @string sub
 		-- @treturn boolean
@@ -320,29 +328,11 @@ return class.Define(function(Tags)
 		end
 
 		--- DOCME
-		function Tags:ReplaceInstanceLists (tagged_lists)
-			local lists = {}
-
-			for tag, list in pairs(tagged_lists) do
-				lists[tag] = self:ReplaceInstances(tag, list)
-			end
-
-			return lists
-		end
-
-		--
-		local function Replace (T, tag, instance)
-			return T:Instantiate(tag, instance:sub(1, instance:find("%[") - 1) .. "*")
-		end
-
-		--- DOCME
 		function Tags:ReplaceInstances (tag, instances)
-			local ilist, replacements = self[_tags][tag].instances, {}
+			local replacements = {}
 
 			for k in Pairs(instances) do
-				if ilist[k] then
-					replacements[k] = Replace(self, tag, k)
-				end
+				replacements[k] = ReplaceSingleInstance(self, tag, k)
 			end
 
 			return replacements
@@ -350,13 +340,9 @@ return class.Define(function(Tags)
 
 		--- DOCME
 		function Tags:ReplaceSingleInstance (tag, instance)
-			local ilist = self[_tags][tag].instances
+			local template = GetTemplate(self, tag, instance)
 
-			if ilist and ilist[instance] then
-				return Replace(self, tag, instance)
-			else
-				return nil
-			end
+			return template and self:Instantiate(tag, template)
 		end
 	end
 
@@ -576,7 +562,7 @@ return class.Define(function(Tags)
 		local Template
 
 		local function InstanceOf (name)
-			local where = name:find("%[")
+			local where = name:find("|")
 
 			return where and name:sub(where - 1) == Template
 		end
@@ -614,8 +600,8 @@ return class.Define(function(Tags)
 				str_list[count + 1], count = v:GetName(), count + 1
 			end
 
-			for _, v in Pairs(tag.instances) do
-				str_list[count + 1], count = v:GetName(), count + 1
+			for name in Pairs(tag.instances) do
+				str_list[count + 1], count = name, count + 1
 			end
 
 			--
@@ -722,5 +708,5 @@ return class.Define(function(Tags)
 	end
 
 	-- Bind references.
-	Children, Is, Parents, TagAndChildren = Tags.Children, Tags.Is, Tags.Parents, Tags.TagAndChildren
+	Children, GetTemplate, Is, Parents, ReplaceSingleInstance, TagAndChildren = Tags.Children, Tags.GetTemplate, Tags.Is, Tags.Parents, Tags.ReplaceSingleInstance, Tags.TagAndChildren
 end)
