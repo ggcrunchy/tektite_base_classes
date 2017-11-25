@@ -28,6 +28,7 @@
 
 -- Standard library imports --
 local assert = assert
+local concat = table.concat
 local ipairs = ipairs
 local pairs = pairs
 local type = type
@@ -247,10 +248,18 @@ return class.Define(function(Tags)
 				local so1 = FindSublink(self, name1, sub1)
 
 				if so1 then
-					local so2, passed = FindSublink(self, name2, sub2)
+					local so2 = FindSublink(self, name2, sub2)
 
 					if so2 then
-						passed, why, is_cont = so1[_can_link](object1, object2, so1, so2, arg)
+						local passed = true
+
+						for _, can_link in adaptive.IterArray(so1[_can_link]) do
+							passed, why, is_cont = can_link(object1, object2, so1, so2, arg)
+
+							if not passed then
+								break
+							end
+						end
 
 						if passed then
 							return true
@@ -405,7 +414,15 @@ return class.Define(function(Tags)
 
 			--- Class cloner.
 			function Sublink:__clone (S)
-				self[_can_link], self[_link_to], self[_name], self[_template] = S[_can_link], S[_link_to], S[_name], S
+				for _, can_link in adaptive.IterArray(S[_can_link]) do
+					self[_can_link] = adaptive.Append(self[_can_link], can_link)
+				end
+
+				for _, link_to in adaptive.IterArray(S[_link_to]) do
+					self[_link_to] = adaptive.Append(self[_link_to], link_to)
+				end
+
+				self[_name], self[_template] = S[_name], S
 			end
 
 			--- Class constructor.
@@ -425,11 +442,27 @@ return class.Define(function(Tags)
 
 		--
 		local function CanLinkTo (_, _, sub, other_sub)
-			if other_sub:Implements(sub[_link_to]) then
-				return true
-			else
-				return false, "Expected `" .. sub[_link_to] .. "`", true
+			local link_to = sub[_link_to]
+
+			for _, what in adaptive.IterArray(link_to) do
+				if other_sub:Implements(what) then
+					return true
+				end
 			end
+
+			local list, names
+
+			for _, what in adaptive.IterArray(link_to) do
+				names = adaptive.Append(names, what)
+			end
+
+			if type(names) == "table" then
+				list = "`" .. concat(names, "` or `") .. "`"
+			else
+				list = "`" .. names .. "`" -- known to contain at least one
+			end
+
+			return false, "Expected " .. list, true
 		end
 
 		--- DOCME
@@ -513,21 +546,31 @@ return class.Define(function(Tags)
 
 						--
 						elseif sub then
-							link_to = sub ~= true and sub
+							link_to = sub
 						end
 						
 						--
-						if type(link_to) == "string" then
-							obj[_can_link], obj[_link_to] = CanLinkTo, link_to
+						local found_string
+
+						for _, what in adaptive.IterArray(link_to) do
+							local wtype = type(what)
+
+							if wtype == "string" then
+								if not found_string then
+									obj[_can_link], found_string = adaptive.Append(obj[_can_link], CanLinkTo), true
+								end
+
+								obj[_link_to] = adaptive.Append(obj[_link_to], what)
+
+								--
+								for interface in adaptive.IterSet(implies[what]) do
+									AddInterface(obj, interface)
+								end
 
 							--
-							for interface in adaptive.IterSet(implies[link_to]) do
-								AddInterface(obj, interface)
+							elseif wtype == "function" then
+								obj[_can_link] = adaptive.Append(obj[_can_link], what)
 							end
-
-						--
-						elseif link_to ~= nil then
-							obj[_can_link] = link_to or LinkToAny
 						end
 
 						--
