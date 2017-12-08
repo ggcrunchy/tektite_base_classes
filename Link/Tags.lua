@@ -312,7 +312,7 @@ return class.Define(function(Tags)
 				local id = (self.counters[sub] or 0) + 1
 				local instance = ("%s|%i|"):format(sub:sub(1, -2), id)
 
-				ilist[instance], self.counters[sub] = class.Clone(template), id
+				ilist[instance], self.counters[sub] = class.Clone(template, instance), id
 
 				return instance
 			else
@@ -413,7 +413,8 @@ return class.Define(function(Tags)
 			end
 
 			--- Class cloner.
-			function Sublink:__clone (S)
+			-- @string name Instance name.
+			function Sublink:__clone (S, name)
 				for _, can_link in adaptive.IterArray(S[_can_link]) do
 					self[_can_link] = adaptive.Append(self[_can_link], can_link)
 				end
@@ -422,7 +423,7 @@ return class.Define(function(Tags)
 					self[_link_to] = adaptive.Append(self[_link_to], link_to)
 				end
 
-				self[_name], self[_template] = S[_name], S
+				self[_name], self[_template] = name, S
 			end
 
 			--- Class constructor.
