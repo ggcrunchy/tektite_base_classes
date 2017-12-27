@@ -42,6 +42,7 @@ local bound_args = require("tektite_core.var.bound_args")
 local cache = require("tektite_core.var.cache")
 local class = require("tektite_core.class")
 local exception = require("tektite_core.exception")
+local meta = require("tektite_core.table.meta")
 local table_funcs = require("tektite_core.table.funcs")
 local var_preds = require("tektite_core.var.predicates")
 local wrapper = require("coroutine_ops.wrapper")
@@ -153,7 +154,7 @@ return class.Define(function(TaskQueue)
 		end
 
 		-- Sequence states --
-		local States = table_funcs.Weak("k")
+		local States = meta.Weak("k")
 
 		-- Adds a set of tasks to a new sequence
 		local function Add (TQ, op, ...)
