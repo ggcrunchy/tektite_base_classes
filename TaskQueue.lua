@@ -154,7 +154,7 @@ return class.Define(function(TaskQueue)
 		end
 
 		-- Sequence states --
-		local States = meta.Weak("k")
+		local States = meta.WeakKeyed()
 
 		-- Adds a set of tasks to a new sequence
 		local function Add (TQ, op, ...)
